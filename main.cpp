@@ -6,9 +6,10 @@
 #include <wait.h>
 #include <map>
 #include <queue>
+#include <fcntl.h>
 
 
-//TODO: hadle non existing command query
+//TODO: find kısmını callcommandden önce yap
 using namespace std;
 map<string, string> LOOKUP;
 queue<pair<int, string>> HISTORY;
@@ -21,7 +22,6 @@ void createDict() {
     LOOKUP["listdir"] = "ls";
     LOOKUP["currentpath"] = "pwd";
     LOOKUP["printfile"] = "cat";
-    //LOOKUP["footprint"] = "history";
     LOOKUP["grep"] = "grep";
 
 
@@ -43,24 +43,16 @@ void printQueue(queue<pair<int, string>> history) {
         string command = el.second;
         cout << commandNumber << ' ' << command << "\n";
         history.pop();
-
-
     }
-
-
 }
 
 void searchCharandConvert(vector<string> &tokens, char **ctokens) {
-    //string pipe = "false";
-    //string direct = "false";
     int len = tokens.size();
     for (int i = 0; i < tokens.size(); i++) {
         string token = tokens[i];
         ctokens[i] = &tokens[i][0];
     }
     ctokens[len] = NULL;
-
-
 }
 
 vector<string> parseInput(string sentence) {
@@ -80,19 +72,15 @@ int callParameterless(string command) {
     pid_t pid, wpid;
     int status;
     char *args[2];
-    if (LOOKUP.find(command)==LOOKUP.end()){
-        cout<< "Invalid command, not cool :( maybe switch back to WInDoWs ^.^\n" ;
+    if (LOOKUP.find(command) == LOOKUP.end()) {
+        cout << "Invalid command, not cool :( maybe switch back to WInDoWs ^.^\n";
         return -1;
     }
     args[0] = &LOOKUP[command][0];
-    //args[0]= &command[0];
     args[1] = NULL;
-
     pid = fork();
     if (pid == 0) {
         execvp(args[0], args);
-
-
         exit(EXIT_FAILURE);
     } else if (pid < 0) {
         // Error forking
@@ -105,7 +93,88 @@ int callParameterless(string command) {
     }
 
     return 1;
+}
 
+void grep(vector<string> query,int i,char **args) {
+    int p[2];
+    int pid;
+    int r;
+    int status;
+
+
+
+    char *grep[] = {"grep", args[i+2], NULL};
+
+    pipe(p);
+
+    pid = fork();
+    if (pid != 0) {
+        // Parent: Output is to child via pipe[1]
+        dup2(p[0], 0);
+        close(p[1]);
+
+        execvp("grep", grep);
+        close(p[0]);
+        waitpid(pid, &status, WUNTRACED);
+        // Change stdout to pipe[1]
+
+    } else {
+        // Child: Input is from pipe[0] and output is via stdout.
+        dup2(p[1], 1);
+        close(p[0]);
+        if (query.at(i-1) == "-a"){
+            char *ls[] = {"ls","-a",NULL};
+            execvp("ls", ls);
+
+
+        }else{
+            char *ls[] = {"ls", NULL};
+            execvp("ls", ls);
+
+        }
+        exit(EXIT_SUCCESS);
+
+    }
+
+}
+
+
+int grepWrapper(vector<string> query,int i,char **args) {
+    pid_t pid, wpid;
+    int status;
+
+    pid = fork();
+    if (pid == 0) {
+        grep( query,i,args);
+
+
+        exit(EXIT_FAILURE);
+    } else if (pid < 0) {
+        // Error forking
+        perror("lsh");
+    } else {
+        // Parent process
+        do {
+            wpid = waitpid(pid, &status, WUNTRACED);
+
+        } while (!WIFEXITED(status) && !WIFSIGNALED(status));
+    }
+
+    return 1;
+}
+
+void redirect(vector<string> query,int i,char **args){
+    char *newargs[3];
+    string fileS = query.at(i - 1);
+    string fileD = query.at(i + 1);
+    newargs[0] = args[0];
+    newargs[1] = &fileS[0];
+    newargs[2] = NULL;
+    int out = open(&fileD[0], O_WRONLY | O_TRUNC | O_CREAT, S_IRUSR | S_IRGRP | S_IWGRP | S_IWUSR);
+    dup2(out, 1);
+    close(out);
+    execvp(newargs[0], newargs);
+    exit(EXIT_FAILURE);
 }
 
 int callWithParameters(vector<string> query) {
@@ -113,22 +182,22 @@ int callWithParameters(vector<string> query) {
     int status;
     char *args[query.size() + 1];
     searchCharandConvert(query, args);
-    if (LOOKUP.find(query[0])==LOOKUP.end()){
-        cout<< "Invalid command, not cool :( maybe switch back to WInDoWs ^.^\n" ;
+    if (LOOKUP.find(query[0]) == LOOKUP.end()) {
+        cout << "Invalid command :( maybe switch back to GUI ^.^\n";
         return -1;
     }
     args[0] = &LOOKUP[args[0]][0];
-    //bool pipe = *args[query.size()]== 't';
-    //bool redirect = *args[query.size()+1] == 't';
-
-    //args[0]= &command[0];
-
-
-    pid = fork();
+   pid = fork();
     if (pid == 0) {
+        for (int i = 0; i < query.size(); i++) {
+            if (query.at(i) == ">") {
+                redirect(query,i,args);
+            }
+            else if (query.at(i) == "|") {
+                grepWrapper(query,i,args);
+            }
+        }
         execvp(args[0], args);
-
-
         exit(EXIT_FAILURE);
     } else if (pid < 0) {
         // Error forking
@@ -149,17 +218,14 @@ void callCommand(vector<string> &query) {
         if (query[0] == "footprint") {
             printQueue(HISTORY);
 
-        } else if(query[0] == "exit") {
+        } else if (query[0] == "exit") {
             exit(EXIT_SUCCESS);
-        }
-                else {
+        } else {
             callParameterless(query.at(0));
         }
 
-
     } else {
         callWithParameters(query);
-
     }
 }
 
@@ -169,25 +235,18 @@ vector<string> readTerminalInput() {
     getline(cin, input_line);
     pushHistory(HISTORY, input_line);
     vector<string> i = parseInput(input_line);
-    //print(i);
     return i;
-
-
 }
-
 
 int main() {
     createDict();
-    cout<< "Welcome on board cool user! GUI is for noobs" << "\n";
+    cout << "Welcome on board cool user! GUI is for noobs" << "\n";
     while (true) {
         string username = getenv("USER");
-        cout<< username<< " >>> ";
+        cout << username << " >>> ";
         vector<string> input = readTerminalInput();
         callCommand(input);
-
+        //grepWrapper();
     }
 
-    //when imput:
-
-    return 0;
 }
