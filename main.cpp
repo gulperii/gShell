@@ -8,24 +8,19 @@
 #include <queue>
 #include <fcntl.h>
 #include <algorithm>
-
-
-//TODO: find kısmını callcommandden önce yap
 using namespace std;
+
 map<string, string> LOOKUP;
 queue<pair<int, string>> HISTORY;
-int counter = 0;
 
-int HISTORY_LIMIT = 15;
+int counter = 1;
+int HISTORY_LIMIT = 14;
 
 void createDict() {
-
     LOOKUP["listdir"] = "ls";
     LOOKUP["currentpath"] = "pwd";
     LOOKUP["printfile"] = "cat";
     LOOKUP["grep"] = "grep";
-
-
 }
 
 void pushHistory(queue<pair<int, string>> &history, string command) {
@@ -34,7 +29,6 @@ void pushHistory(queue<pair<int, string>> &history, string command) {
     }
     history.push(make_pair(counter, command));
     counter++;
-
 }
 
 void printQueue(queue<pair<int, string>> history) {
@@ -65,7 +59,6 @@ vector<string> parseInput(string sentence) {
 void print(vector<string> &a) {
     for (int i = 0; i < a.size(); i++) {
         cout << a.at(i) << "\n";
-
     }
 }
 
@@ -96,11 +89,15 @@ int callParameterless(string command) {
     return 1;
 }
 
-void grep(vector<string> query, int i) {
+int grep(vector<string> query, int i) {
     int p[2];
     int pid;
     int r;
     int status;
+    if (query.at(i +1) != "grep" || query.at(0) != "listdir"){
+        cout << "Invalid command, not cool :( maybe switch back to WInDoWs ^.^\n";
+        return -1;
+    }
 
     string str = query.at(i + 2);
     str.erase(remove(str.begin(), str.end(), '\"'), str.end());
@@ -126,17 +123,14 @@ void grep(vector<string> query, int i) {
         if (query.at(i - 1) == "-a") {
             char *ls[] = {"ls", "-a", NULL};
             execvp("ls", ls);
-
-
-        } else {
+        } else if (query.at(i - 1) == "listdir"){
             char *ls[] = {"ls", NULL};
             execvp("ls", ls);
-
+        }else{
+            cout << "Invalid command, not cool :( maybe switch back to WInDoWs ^.^\n";
+            return -1;
         }
-        exit(EXIT_SUCCESS);
-
-    }
-
+        exit(EXIT_SUCCESS); }
 }
 
 
@@ -157,10 +151,8 @@ int grepWrapper(vector<string> query, int i) {
         // Parent process
         do {
             wpid = waitpid(pid, &status, WUNTRACED);
-
         } while (!WIFEXITED(status) && !WIFSIGNALED(status));
     }
-
     return 1;
 }
 
@@ -205,7 +197,6 @@ int callWithParameters(vector<string> query) {
     args[0] = &LOOKUP[args[0]][0];
     pid = fork();
     if (pid == 0) {
-
         execvp(args[0], args);
         exit(EXIT_FAILURE);
     } else if (pid < 0) {
@@ -218,7 +209,6 @@ int callWithParameters(vector<string> query) {
         } while (!WIFEXITED(status) && !WIFSIGNALED(status));
     }
     return 1;
-
 }
 
 
@@ -249,15 +239,11 @@ void callCommand(vector<string> &query) {
         }
         if (pipe) {
             grepWrapper(query, pipeIdx);
-
         } else if (direct) {
             redirect(query, directIdx);
-
         } else {
             callWithParameters(query);
-
         }
-
     }
 }
 
@@ -278,7 +264,5 @@ int main() {
         cout << username << " >>> ";
         vector<string> input = readTerminalInput();
         callCommand(input);
-        //grepWrapper();
     }
-
 }
