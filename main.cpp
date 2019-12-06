@@ -7,6 +7,7 @@
 #include <map>
 #include <queue>
 #include <fcntl.h>
+#include <algorithm>
 
 
 //TODO: find kısmını callcommandden önce yap
@@ -95,15 +96,15 @@ int callParameterless(string command) {
     return 1;
 }
 
-void grep(vector<string> query,int i,char **args) {
+void grep(vector<string> query, int i) {
     int p[2];
     int pid;
     int r;
     int status;
 
-
-
-    char *grep[] = {"grep", args[i+2], NULL};
+    string str = query.at(i + 2);
+    str.erase(remove(str.begin(), str.end(), '\"'), str.end());
+    char *grep[] = {"grep", &str[0], NULL};
 
     pipe(p);
 
@@ -113,7 +114,7 @@ void grep(vector<string> query,int i,char **args) {
         dup2(p[0], 0);
         close(p[1]);
 
-        execvp("grep", grep);
+        execvp(grep[0], grep);
         close(p[0]);
         waitpid(pid, &status, WUNTRACED);
         // Change stdout to pipe[1]
@@ -122,12 +123,12 @@ void grep(vector<string> query,int i,char **args) {
         // Child: Input is from pipe[0] and output is via stdout.
         dup2(p[1], 1);
         close(p[0]);
-        if (query.at(i-1) == "-a"){
-            char *ls[] = {"ls","-a",NULL};
+        if (query.at(i - 1) == "-a") {
+            char *ls[] = {"ls", "-a", NULL};
             execvp("ls", ls);
 
 
-        }else{
+        } else {
             char *ls[] = {"ls", NULL};
             execvp("ls", ls);
 
@@ -139,13 +140,13 @@ void grep(vector<string> query,int i,char **args) {
 }
 
 
-int grepWrapper(vector<string> query,int i,char **args) {
+int grepWrapper(vector<string> query, int i) {
     pid_t pid, wpid;
     int status;
 
     pid = fork();
     if (pid == 0) {
-        grep( query,i,args);
+        grep(query, i);
 
 
         exit(EXIT_FAILURE);
@@ -163,18 +164,33 @@ int grepWrapper(vector<string> query,int i,char **args) {
     return 1;
 }
 
-void redirect(vector<string> query,int i,char **args){
-    char *newargs[3];
-    string fileS = query.at(i - 1);
-    string fileD = query.at(i + 1);
-    newargs[0] = args[0];
-    newargs[1] = &fileS[0];
-    newargs[2] = NULL;
-    int out = open(&fileD[0], O_WRONLY | O_TRUNC | O_CREAT, S_IRUSR | S_IRGRP | S_IWGRP | S_IWUSR);
-    dup2(out, 1);
-    close(out);
-    execvp(newargs[0], newargs);
-    exit(EXIT_FAILURE);
+int redirect(vector<string> query, int i) {
+    pid_t pid, wpid;
+    int status;
+    pid = fork();
+    if (pid == 0) {
+        char *newargs[3];
+        string fileS = query.at(i - 1);
+        string fileD = query.at(i + 1);
+        newargs[0] = &LOOKUP[query.at(0)][0];
+        newargs[1] = &fileS[0];
+        newargs[2] = NULL;
+        int out = open(&fileD[0], O_WRONLY | O_TRUNC | O_CREAT, S_IRUSR | S_IRGRP | S_IWGRP | S_IWUSR);
+        dup2(out, 1);
+        close(out);
+        execvp(newargs[0], newargs);
+        exit(EXIT_FAILURE);
+    } else if (pid < 0) {
+        // Error forking
+        perror("lsh");
+    } else {
+        // Parent process
+        do {
+            wpid = waitpid(pid, &status, WUNTRACED);
+        } while (!WIFEXITED(status) && !WIFSIGNALED(status));
+    }
+    return 1;
+
 }
 
 int callWithParameters(vector<string> query) {
@@ -187,16 +203,9 @@ int callWithParameters(vector<string> query) {
         return -1;
     }
     args[0] = &LOOKUP[args[0]][0];
-   pid = fork();
+    pid = fork();
     if (pid == 0) {
-        for (int i = 0; i < query.size(); i++) {
-            if (query.at(i) == ">") {
-                redirect(query,i,args);
-            }
-            else if (query.at(i) == "|") {
-                grepWrapper(query,i,args);
-            }
-        }
+
         execvp(args[0], args);
         exit(EXIT_FAILURE);
     } else if (pid < 0) {
@@ -214,6 +223,10 @@ int callWithParameters(vector<string> query) {
 
 
 void callCommand(vector<string> &query) {
+    bool direct = false;
+    int directIdx = -1;
+    int pipeIdx = -1;
+    bool pipe = false;
     if (query.size() == 1) {
         if (query[0] == "footprint") {
             printQueue(HISTORY);
@@ -225,7 +238,26 @@ void callCommand(vector<string> &query) {
         }
 
     } else {
-        callWithParameters(query);
+        for (int i = 0; i < query.size(); i++) {
+            if (query.at(i) == ">") {
+                direct = true;
+                directIdx = i;
+            } else if (query.at(i) == "|") {
+                pipeIdx = i;
+                pipe = true;
+            }
+        }
+        if (pipe) {
+            grepWrapper(query, pipeIdx);
+
+        } else if (direct) {
+            redirect(query, directIdx);
+
+        } else {
+            callWithParameters(query);
+
+        }
+
     }
 }
 
